@@ -16,12 +16,12 @@ Pixy2I2C pixy; //instantiate I2C pixy (5V, GND, SDL, SCA)
 #define IR_R    A3 //right IR sensor
 #define ping    7  //front ping sensor
 //predef delays
-long leftTurnDelay = 1200;
-long rightTurnDelay = 1200;
-long revDelay = 400;
-long adjDelay = 80;
+long leftTurnDelay = 800;
+long rightTurnDelay = 800;
+long revDelay = 500;
+long adjDelay = 200;
 float wall_v = 2.8; //threshold IR voltage for wall adjustment
-int movespd = 160;   //general movement speed of motor
+int movespd = 70;   //general movement speed of motor
 
 void setup() {
     Serial.begin(115200);     //pixy baud rate
@@ -43,14 +43,14 @@ void pause() {
 
 //movement mode setting
 void setMovement(bool dirL, bool enL, int spdL, bool dirR, bool enR, int spdR) {
-  //channel A motor on right side
-  digitalWrite(dir_A, dirR);
-  digitalWrite(brk_A, enR);
-  analogWrite(spd_A, spdR);
-  //channel B motor on left side
-  digitalWrite(dir_B, dirL);
-  digitalWrite(brk_B, enL);
-  analogWrite(spd_B, spdL);
+  //channel A motor on left side
+  digitalWrite(dir_A, dirL);
+  digitalWrite(brk_A, enL);
+  analogWrite(spd_A, spdL);
+  //channel B motor on right side
+  digitalWrite(dir_B, dirR);
+  digitalWrite(brk_B, enR);
+  analogWrite(spd_B, spdR);
 }
 
 //directional motor setup
@@ -62,12 +62,12 @@ void reverse() {
   //move backward 
   setMovement(LOW, LOW, movespd, LOW, LOW, movespd);
 }
-void goRight() {
-  //turn right 
-  setMovement(LOW, LOW, movespd, HIGH, LOW, movespd);
-}
 void goLeft() {
   //turn left 
+  setMovement(LOW, LOW, movespd, HIGH, LOW, movespd);
+}
+void goRight() {
+  //turn right 
   setMovement(HIGH, LOW, movespd, LOW, LOW, movespd);
 }
 void brake() {
@@ -100,30 +100,23 @@ float frontDist() {
   return pulsedur/29.15/2;  //speed of sound gives 29.15us/cm, div/2 for bounce
 }
 
-//adjust to veer left
-void adjLeft(){             
-  setMovement(HIGH, LOW, movespd-25, HIGH, LOW, movespd+25); //right motor speeds up
+//adjust to veer right
+void adjRight(){             
+  setMovement(HIGH, LOW, movespd+15, HIGH, LOW, movespd-10); //left motor speeds up
   delay(adjDelay);
-  //readjust towards forward position by veering right
-  //setMovement(HIGH, LOW, movespd+25, HIGH, LOW, movespd);
-  //delay(adjDelay); // delay to prevent zig zag motion
 }
 
-//adjust to veer right
-void adjRight(){            
-  setMovement(HIGH, LOW, movespd+25, HIGH, LOW, movespd+25); //left motor speeds up
+//adjust to veer left
+void adjLeft(){            
+  setMovement(HIGH, LOW, movespd-10, HIGH, LOW, movespd+15); //right motor speeds up
   delay(adjDelay);
-  //readjust towards forward position by veering left
-  //setMovement(HIGH, LOW, movespd, HIGH, LOW, movespd+25);
-  //delay(adjDelay); // delay to prevent zig zag motion
 }
 
 void loop() {
   pixy.ccc.getBlocks(); //return pixy view data
-  //float dist = 1368.3/pixy.ccc.blocks[0].m_width; //conversion from px to cm
   if (frontDist() < 7) { //read pattern signatures only when closer than 7cm
     if (pixy.ccc.blocks[0].m_signature == 1) {
-      //turn right when pixy sees yellow, half throttle
+      //turn right when pixy sees yellow
       pause();
       goRight();
       showSerial("Right", frontDist());
@@ -136,41 +129,31 @@ void loop() {
       delay(leftTurnDelay);
       brake();
     } else if (pixy.ccc.blocks[0].m_signature == 3) {
-      //u turn when pixy sees pink, turns left but with twice turn delay
+      //u turn when pixy sees pink, turns left but with ~twice turn delay
       pause();
       goLeft();
       showSerial("U-turn", frontDist());
-      delay(3*leftTurnDelay);
+      delay(2.3*leftTurnDelay);
       brake();
     } else {
       //move back when pixy is within 10cm and sees nothing
       pause();
       reverse();
       showSerial("Reverse", frontDist());
-      //delay(revDelay);
-      //brake();
+      delay(revDelay);
     }
   } else { //move forward if distance more than 10cm
-    int x = pixy.ccc.blocks[0].m_x;
-    if (x < 153) {
-      adjLeft();
-    }
-    else if (x > 163) {
+    float left_v = analogRead(IR_L)*0.0048828125;  //left IR voltage
+    float right_v = analogRead(IR_R)*0.0048828125; //right IR voltage
+    forward();
+    showSerial("Forward", frontDist());
+    if(left_v > wall_v) {  //veer right if left wall too close
       adjRight();
+      Serial.println("Left wall too close");
     }
-    else {
-      float left_v = analogRead(IR_L)*0.0048828125;  //left IR voltage
-      float right_v = analogRead(IR_R)*0.0048828125; //right IR voltage
-      forward();
-      showSerial("Forward", frontDist());
-      if(left_v > wall_v) {  //veer right if left wall too close
-        adjRight();
-        Serial.println("Left wall too close");
-      }
-      if(right_v > wall_v) { //veer left if right wall too close
-        adjLeft();
-        Serial.println("Right wall too close");
-      }
+    if(right_v > wall_v) { //veer left if right wall too close
+      adjLeft();
+      Serial.println("Right wall too close");
     }
   }
   delay(100); //sample data at 10Hz
